@@ -1,5 +1,5 @@
-# This script automates the cleanup of specified directories by reading paths from a configuration file (config.ini).
-# The script supports multi-threading for efficient file deletion and allows for customizable logging.
+# Program.ps1
+# PowerShell 7.x optimized cleanup script with parallel processing and enhanced logging
 
 # Get the script's directory and build the relative path to the config.ini file
 $configFilePath = Join-Path -Path $PSScriptRoot -ChildPath "config.ini"
@@ -69,16 +69,8 @@ $logFile = "${logDirectory}\cleanup_log_${currentDate}.txt"
 # Load the paths to be cleaned from the config file
 $paths = $config["Paths"]
 
-# Split the paths into smaller chunks for multi-threaded processing
+# Configure thread count from config
 $threadCount = $config["MultiThreads"]["DefaultThreadsCount"]
-$chunkSize = [Math]::Ceiling($paths.Count / $threadCount)
-$pathChunks = $paths | ForEach-Object -Begin { $chunk = @() } -Process {
-    $chunk += $_
-    if ($chunk.Count -eq $chunkSize) {
-        $chunk
-        $chunk = @()
-    }
-} | Where-Object { $_.Count -gt 0 }
 
 # Global array to store all logs
 $global:allLogs = @()
@@ -104,71 +96,62 @@ function Write-Log {
         $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
         $logMessage = "${timestamp} - [${level}] - ${message}"
         $global:allLogs += $logMessage
-        Write-Host $logMessage  # Output to the console
+        Write-Information -MessageData $logMessage -InformationAction Continue
     }
 }
 
 # Log the start of the cleanup process
 Write-Log "info" "Cleanup script execution started."
 
-# Start multi-threaded tasks to process the path chunks
-$jobs = foreach ($chunk in $pathChunks) {
-    Start-Job -ScriptBlock {
-        param($paths, $logLevel)
+# Start parallel tasks to process the paths
+$paths | ForEach-Object -Parallel {
+    param($logLevel)
 
-        # Thread-specific log storage
-        $threadLogs = @()
-        $levelsPriority = @{
-            "none"    = 5
-            "error"   = 4
-            "warning" = 3
-            "info"    = 2
-            "debug"   = 1
+    # Define log level priorities
+    $levelsPriority = @{
+        "none"    = 5
+        "error"   = 4
+        "warning" = 3
+        "info"    = 2
+        "debug"   = 1
+    }
+
+    # Thread-specific log storage
+    $threadLogs = @()
+
+    # Function to log messages within each thread
+    function Write-ThreadLog {
+        param (
+            [string]$level,  # Log level
+            [string]$message
+        )
+
+        # Check if the current log level is allowed to be logged
+        if ($levelsPriority[$level] -ge $levelsPriority[$logLevel]) {
+            $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+            $threadLogs += "${timestamp} - [${level}] - ${message}"
         }
+    }
 
-        # Function to log messages within each thread
-        function Write-ThreadLog {
-            param (
-                [string]$level,  # Log level
-                [string]$message
-            )
+    # Process each path
+    $path = $_
+    try {
+        Write-ThreadLog "info" "Starting deletion of ${path}"
 
-            # Check if the current log level is allowed to be logged
-            if ($levelsPriority[$level] -ge $levelsPriority[$logLevel]) {
-                $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-                $threadLogs += "${timestamp} - [${level}] - ${message}"
-            }
+        if (Test-Path $path) {
+            Remove-Item -Path $path -Recurse -Force -ErrorAction Stop
+            Write-ThreadLog "info" "Successfully cleaned: ${path}"
+        } else {
+            Write-ThreadLog "warning" "Path not found: ${path}"
         }
+    } catch {
+        Write-ThreadLog "error" "Error cleaning path ${path}: ${_.Exception.Message}"
+    }
 
-        # Process each path in the chunk
-        foreach ($path in $paths) {
-            try {
-                Write-ThreadLog "info" "Starting deletion of ${path}"
-                
-                if (Test-Path $path) {
-                    Remove-Item -Path $path -Recurse -Force -ErrorAction SilentlyContinue
-                    Write-ThreadLog "info" "Successfully cleaned: ${path}"
-                } else {
-                    Write-ThreadLog "warning" "Path not found: ${path}"
-                }
-            } catch {
-                Write-ThreadLog "error" "Failed to clean ${path}: ${_.Exception.Message}"
-            }
-        }
+    return $threadLogs
 
-        Write-ThreadLog "debug" "Thread completed"
-        return $threadLogs
-    } -ArgumentList $chunk, $logLevel
-}
-
-# Wait for all tasks to complete and collect logs
-$jobs | ForEach-Object {
-    $threadLogs = Receive-Job -Job $_
-    $global:allLogs += $threadLogs
-
-    # Ensure jobs are completed before removal
-    Wait-Job -Job $_
-    Remove-Job -Job $_
+} -ThrottleLimit $threadCount -ArgumentList $using:logLevel | ForEach-Object {
+    $global:allLogs += $_
 }
 
 # Clean up old log files based on retention settings
