@@ -16,18 +16,18 @@ PowerShell Cleanup Automation is a script designed to automate the cleanup of sp
    git clone https://github.com/YourUsername/PowerShell-Cleanup-Automation.git
    ```
 2. Navigate to the project directory:
-  ```bash
-  cd PowerShell-Cleanup-Automation
-  ```
+   ```bash
+   cd PowerShell-Cleanup-Automation
+   ```
 ## Configuration
 The script is configured through the config.ini file.
 
 ## Usage
 Modify the config.ini file to specify the directories you want to clean and adjust the logging and threading settings as needed.
 Run the script using PowerShell:
-  ```powershell
-  .\Program.ps1
-  ```
+   ```powershell
+   .\Program.ps1
+   ```
 ## Requirements
 - Windows PowerShell 5.1 or later.
 - Proper permissions to delete files in the specified directories.
