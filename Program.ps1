@@ -1,7 +1,10 @@
-# 获取脚本所在的目录，并构建配置文件的相对路径
+# This script automates the cleanup of specified directories by reading paths from a configuration file (config.ini).
+# The script supports multi-threading for efficient file deletion and allows for customizable logging.
+
+# Get the script's directory and build the relative path to the config.ini file
 $configFilePath = Join-Path -Path $PSScriptRoot -ChildPath "config.ini"
 
-# 读取INI文件的函数
+# Function to read and parse the INI configuration file
 function Get-IniContent {
     param([string]$iniPath)
     
@@ -10,6 +13,7 @@ function Get-IniContent {
     $iniHash = @{}
 
     foreach ($line in $iniContent) {
+        # Check for section headers (e.g., [Paths])
         if ($line -match '^\[(.+)\]$') {
             $currentSection = $matches[1]
             if ($currentSection -eq 'Paths') {
@@ -17,6 +21,7 @@ function Get-IniContent {
             } else {
                 $iniHash[$currentSection] = @{}
             }
+        # Parse key-value pairs within sections (e.g., LogLevel = debug)
         } elseif ($line -match '^(.*?)\s*=\s*(.*)$' -and $currentSection -ne 'Paths') {
             $key = $matches[1].Trim()
             $value = $matches[2].Trim()
@@ -25,6 +30,7 @@ function Get-IniContent {
             } else {
                 $iniHash[$currentSection][$key] = $value
             }
+        # Add paths to the 'Paths' section
         } elseif ($currentSection -eq 'Paths') {
             $iniHash[$currentSection] += $line
         }
@@ -32,21 +38,21 @@ function Get-IniContent {
     return $iniHash
 }
 
-# 解析配置文件
+# Parse the config.ini file
 $config = Get-IniContent $configFilePath
 
-# 读取 Debug 部分的配置信息
+# Read Debug settings from the config file
 $logLevel = $config["Debug"]["LogLevel"].ToLower()
 $logDirectory = $config["Debug"]["LogDirectory"]
 $logRetentionDays = [int]$config["Debug"]["LogRetentionDays"]
 
-# 检查日志目录是否配置正确
+# Ensure the log directory is configured and exists
 if (-not $logDirectory) {
     Write-Host "LogDirectory is not configured. Please check the config.ini."
     exit
 }
 
-# 创建日志目录（如果不存在）
+# Create the log directory if it does not exist
 if (-not (Test-Path $logDirectory)) {
     try {
         New-Item -ItemType Directory -Path $logDirectory -Force
@@ -56,14 +62,14 @@ if (-not (Test-Path $logDirectory)) {
     }
 }
 
-# 获取当前日期，用于日志文件名
+# Generate a log file name based on the current date and time
 $currentDate = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 $logFile = "${logDirectory}\cleanup_log_${currentDate}.txt"
 
-# 加载路径
+# Load the paths to be cleaned from the config file
 $paths = $config["Paths"]
 
-# 将路径列表分割为多个子列表
+# Split the paths into smaller chunks for multi-threaded processing
 $threadCount = $config["MultiThreads"]["DefaultThreadsCount"]
 $chunkSize = [Math]::Ceiling($paths.Count / $threadCount)
 $pathChunks = $paths | ForEach-Object -Begin { $chunk = @() } -Process {
@@ -74,17 +80,17 @@ $pathChunks = $paths | ForEach-Object -Begin { $chunk = @() } -Process {
     }
 } | Where-Object { $_.Count -gt 0 }
 
-# 主线程的日志存储
+# Global array to store all logs
 $global:allLogs = @()
 
-# 日志记录函数，根据级别控制输出
+# Function to log messages based on the configured log level
 function Write-Log {
     param (
-        [string]$level,  # 日志级别
+        [string]$level,  # Log level (e.g., error, warning, info, debug)
         [string]$message
     )
 
-    # 设置日志优先级
+    # Define log level priorities
     $levelsPriority = @{
         "none"    = 5
         "error"   = 4
@@ -93,24 +99,24 @@ function Write-Log {
         "debug"   = 1
     }
 
-    # 检查日志级别是否允许输出
+    # Check if the current log level is allowed to be logged
     if ($levelsPriority[$level] -ge $levelsPriority[$logLevel]) {
         $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
         $logMessage = "${timestamp} - [${level}] - ${message}"
         $global:allLogs += $logMessage
-        Write-Host $logMessage  # 输出到控制台
+        Write-Host $logMessage  # Output to the console
     }
 }
 
-# 添加基础日志记录
+# Log the start of the cleanup process
 Write-Log "info" "Cleanup script execution started."
 
-# 启动多线程任务
+# Start multi-threaded tasks to process the path chunks
 $jobs = foreach ($chunk in $pathChunks) {
     Start-Job -ScriptBlock {
         param($paths, $logLevel)
 
-        # 线程内日志存储
+        # Thread-specific log storage
         $threadLogs = @()
         $levelsPriority = @{
             "none"    = 5
@@ -120,19 +126,21 @@ $jobs = foreach ($chunk in $pathChunks) {
             "debug"   = 1
         }
 
+        # Function to log messages within each thread
         function Write-ThreadLog {
             param (
-                [string]$level,  # 日志级别
+                [string]$level,  # Log level
                 [string]$message
             )
 
-            # 检查日志级别是否允许输出
+            # Check if the current log level is allowed to be logged
             if ($levelsPriority[$level] -ge $levelsPriority[$logLevel]) {
                 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
                 $threadLogs += "${timestamp} - [${level}] - ${message}"
             }
         }
 
+        # Process each path in the chunk
         foreach ($path in $paths) {
             try {
                 Write-ThreadLog "info" "Starting deletion of ${path}"
@@ -153,25 +161,25 @@ $jobs = foreach ($chunk in $pathChunks) {
     } -ArgumentList $chunk, $logLevel
 }
 
-# 等待所有任务完成，并收集日志
+# Wait for all tasks to complete and collect logs
 $jobs | ForEach-Object {
     $threadLogs = Receive-Job -Job $_
     $global:allLogs += $threadLogs
 
-    # 确保作业已完成后再删除
+    # Ensure jobs are completed before removal
     Wait-Job -Job $_
     Remove-Job -Job $_
 }
 
-# 清理旧日志文件
+# Clean up old log files based on retention settings
 Get-ChildItem -Path $logDirectory -Filter *.txt | Where-Object {
     $_.LastWriteTime -lt (Get-Date).AddDays(-$logRetentionDays)
 } | Remove-Item -Force
 
-# 结束日志
+# Log the end of the cleanup process
 Write-Log "info" "Cleanup script execution completed."
 
-# 写入所有日志到文件
+# Write all collected logs to the log file
 if ($global:allLogs.Count -gt 0) {
     try {
         $global:allLogs | ForEach-Object {
