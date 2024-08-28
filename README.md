@@ -36,6 +36,8 @@ Run the script using PowerShell:
 This project is licensed under the MIT License. See the LICENSE file for more details.
 
 ## Contributing
+This repo is made under the help from ChatGPT.
+
 Feel free to open issues and submit pull requests. Contributions are welcome!
 
 Contact
