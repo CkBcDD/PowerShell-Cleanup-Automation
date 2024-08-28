@@ -1,5 +1,7 @@
 # PowerShell Cleanup Automation
 
+### This version is refactored using Powershell 7.x
+
 ## Overview
 PowerShell Cleanup Automation is a script designed to automate the cleanup of specified directories on your Windows system. It allows you to specify directories for cleanup in a configuration file and provides options for logging the cleanup process with different levels of detail. This script supports multi-threading for efficient file deletion and includes configurable settings for customizing the cleanup process.
 
@@ -29,7 +31,7 @@ Run the script using PowerShell:
    .\Program.ps1
    ```
 ## Requirements
-- Windows PowerShell 5.1 or later.
+- PowerShell 7.x.
 - Proper permissions to delete files in the specified directories.
 
 ## License
