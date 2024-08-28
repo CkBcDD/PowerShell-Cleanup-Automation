@@ -13,7 +13,7 @@ PowerShell Cleanup Automation is a script designed to automate the cleanup of sp
 ## Installation
 1. Clone this repository to your local machine:
    ```bash
-   git clone https://github.com/YourUsername/PowerShell-Cleanup-Automation.git
+   git clone https://github.com/CkBcDD/PowerShell-Cleanup-Automation.git
    ```
 2. Navigate to the project directory:
    ```bash
